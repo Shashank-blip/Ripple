@@ -164,10 +164,27 @@ def test_parse_uncertainty_propagates(index):
     assert resolve(index, "app.py", "importlib.import_module(name)").uncertain
 
 
-# --- known hole (tracked, not hidden) ------------------------------------------
+# --- sys.path aliases (formerly the known hole) --------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="pytest prepend-mode sys.path aliases not modelled yet")
 def test_sibling_import_in_init_less_test_dir():
     idx = ModuleIndex.from_paths(["tests/test_a.py", "tests/helpers.py"])
     assert "tests/helpers.py" in resolve(idx, "tests/test_a.py", "import helpers").targets
+
+
+def test_nested_dirs_under_init_less_root_are_importable():
+    idx = ModuleIndex.from_paths(["tests/unit/test_x.py", "tests/unit/sub/mod.py"])
+    assert targets(idx, "tests/unit/test_x.py", "import sub.mod") == {"tests/unit/sub/mod.py"}
+
+
+def test_src_layout_needs_no_configuration():
+    idx = ModuleIndex.from_paths(["src/lib/__init__.py", "src/lib/core.py", "app.py"])
+    assert targets(idx, "app.py", "import lib.core") == {
+        "src/lib/__init__.py",
+        "src/lib/core.py",
+    }
+
+
+def test_aliases_never_shadow_real_module_names():
+    idx = ModuleIndex.from_paths(["helpers.py", "tests/helpers.py"])
+    assert idx.modules["helpers"] == "helpers.py"

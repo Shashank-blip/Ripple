@@ -57,6 +57,21 @@ def _module_parts(rel_path: str, root: str) -> tuple[str, ...] | None:
         return None
     return tuple(parts)
 
+def _import_roots(paths: Iterable[str]) -> set[str]:
+    """Directories that can end up on sys.path: the nearest ancestor with no __init__.py.
+
+    Python (and pytest's default import mode) resolve `import x` relative to those, so a
+    module can be reachable under more than one dotted name.
+    """
+    path_set = set(paths)
+    roots: set[str] = set()
+    for rel in path_set:
+        directory = PurePosixPath(rel).parent
+        while directory.parts and f"{directory.as_posix()}/{INIT_FILE}" in path_set:
+            directory = directory.parent
+        roots.add(directory.as_posix())  # "." for the repo root
+    return roots
+
 
 @dataclass(frozen=True)
 class ModuleIndex:
@@ -84,7 +99,21 @@ class ModuleIndex:
             file_modules[rel] = name
             modules.setdefault(name, rel)
 
-        known = {prefix for name in file_modules.values() for prefix in _prefixes(name)}
+        # Aliases: the same file under every name Python or pytest could give it. They never
+        # override a primary name, so they can only add edges (over-select), never drop any.
+        names = set(file_modules.values())
+        for root in sorted(_import_roots(ordered) | roots):
+            for rel in ordered:
+                if root != "." and not rel.startswith(root + "/"):
+                    continue
+                parts = _module_parts(rel, root)
+                if parts is None:
+                    continue
+                alias = ".".join(parts)
+                names.add(alias)
+                modules.setdefault(alias, rel)
+
+        known = {prefix for name in names for prefix in _prefixes(name)}
         children: dict[str, list[str]] = {}
         for name in known:
             parent = name.rpartition(".")[0]
